@@ -1,0 +1,36 @@
+# Python environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+
+# Secrets
+.env
+
+# Logs
+*.log
+
+# Test recordings and generated output
+recording/
+recordings/
+snapshots/
+camera_test_*.jpg
+test_camera_*.jpg
+static/violations/
+static/voilation/
+test_camera_*.jpg
+__pycache__/
+*.pyc
+*.pt
+*.pth
+*.onnx
+snapshots/
+camera_test_*.jpg
+.vscode/

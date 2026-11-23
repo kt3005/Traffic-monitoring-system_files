@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Panel</title>
+
+    <style>
+        body {
+            background: #020617;
+            color: white;
+            font-family: Arial;
+            text-align: center;
+        }
+
+        h1 { color: #22c55e; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        img {
+            width: 100%;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>🚓 Admin Dashboard</h1>
+
+<div class="grid">
+
+    <div class="card">
+        <h3>🚗 Vehicles</h3>
+        <p id="vehicles">0</p>
+    </div>
+
+    <div class="card">
+        <h3>🚦 Traffic</h3>
+        <p id="traffic">Low</p>
+    </div>
+
+    <div class="card">
+        <h3>🚨 Violations</h3>
+        <p id="count">0</p>
+    </div>
+
+</div>
+
+<h2>📸 Latest Violations</h2>
+<div id="images"></div>
+
+<script>
+
+// stats
+setInterval(()=>{
+    fetch("/stats")
+    .then(r=>r.json())
+    .then(d=>{
+        document.getElementById("vehicles").innerText = d.vehicles
+        document.getElementById("traffic").innerText = d.traffic
+    });
+},1000);
+
+// violations
+setInterval(()=>{
+    fetch("/violations")
+    .then(r=>r.json())
+    .then(data=>{
+        document.getElementById("count").innerText = data.length
+
+        let html = ""
+        data.slice(-6).reverse().forEach(img=>{
+            html += `<img src="${img}" style="width:200px;margin:10px;">`
+        })
+
+        document.getElementById("images").innerHTML = html
+    });
+},2000);
+
+</script>
+
+</body>
+</html>

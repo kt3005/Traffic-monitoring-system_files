@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AI Traffic Control</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+        }
+
+        .container {
+            display: flex;
+        }
+
+        .left {
+            width: 70%;
+            padding: 20px;
+        }
+
+        .right {
+            width: 30%;
+            background: #1e293b;
+            padding: 20px;
+        }
+
+        img {
+            width: 100%;
+            border-radius: 10px;
+            border: 2px solid #22c55e;
+        }
+
+        .btn {
+            padding: 10px;
+            margin: 5px;
+            border: none;
+            cursor: pointer;
+            color: white;
+        }
+
+        .start { background: green; }
+        .stop { background: red; }
+        .capture { background: blue; }
+
+        .card {
+            background: #334155;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 10px;
+        }
+
+        .violations img {
+            width: 100%;
+            margin-top: 10px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2 style="text-align:center;">🚦 AI Traffic Monitoring System</h2>
+
+<div class="container">
+
+    <!-- LEFT SIDE -->
+    <div class="left">
+        <h3>📷 Live Camera</h3>
+        
+        <div style="margin-bottom: 10px;">
+            <label for="cameraSelect" style="color: white;">Select Camera:</label>
+            <select id="cameraSelect" style="margin-left: 10px; padding: 5px;">
+                <option value="">Default Camera</option>
+            </select>
+            <button class="btn" onclick="listCameras()" style="padding: 5px 10px; margin-left: 10px;">🔄 Refresh</button>
+        </div>
+        
+        <video id="video" autoplay playsinline style="width: 100%; border-radius: 10px; border: 2px solid #22c55e;"></video>
+
+        <br><br>
+
+        <button class="btn start" onclick="startCamera()">START</button>
+        <button class="btn stop" onclick="stopCamera()">STOP</button>
+        <button class="btn capture" onclick="captureSnapshot()">📸 CAPTURE</button>
+    </div>
+
+    <!-- RIGHT SIDE -->
+    <div class="right">
+
+        <div class="card">
+            <h3>📊 Traffic Status</h3>
+            <p id="stats">Loading...</p>
+        </div>
+
+        <div class="card">
+            <h3>� Vehicle Count</h3>
+            <p id="vehicle_counts">Loading...</p>
+        </div>
+
+        <div class="card">
+            <h3>ð¯ Violation Snapshots</h3>
+            <div id="violations" class="violations"></div>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+let stream = null;
+let cameras = [];
+
+// List available cameras
+async function listCameras() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        cameras = devices.filter(device => device.kind === 'videoinput');
+        
+        const select = document.getElementById('cameraSelect');
+        select.innerHTML = '<option value="">Default Camera</option>';
+        
+        cameras.forEach((camera, index) => {
+            const option = document.createElement('option');
+            option.value = camera.deviceId;
+            option.text = camera.label || `Camera ${index + 1}`;
+            select.appendChild(option);
+        });
+        
+        console.log(`Found ${cameras.length} cameras`);
+    } catch (err) {
+        console.error("Error listing cameras:", err);
+    }
+}
+
+async function startCamera(){
+    try {
+        // Get selected camera or use default
+        const select = document.getElementById('cameraSelect');
+        const selectedCameraId = select.value;
+        
+        const constraints = {
+            video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            }
+        };
+        
+        // Use specific camera if selected
+        if (selectedCameraId) {
+            constraints.video.deviceId = { exact: selectedCameraId };
+        }
+        
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const video = document.getElementById("video");
+        video.srcObject = stream;
+        console.log("Camera started successfully");
+        
+        // Start helmet detection
+        startHelmetDetection(video);
+    } catch (err) {
+        console.error("Camera error:", err);
+        alert("Camera access denied or not available. Please check permissions.");
+    }
+}
+
+function stopCamera(){
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        const video = document.getElementById("video");
+        video.srcObject = null;
+        stream = null;
+        console.log("Camera stopped");
+    }
+}
+
+let detectionInterval = null;
+
+function startHelmetDetection(video) {
+    console.log("Starting helmet detection...");
+    
+    detectionInterval = setInterval(async () => {
+        if (!video.srcObject) return;
+        
+        // Create canvas to capture frame
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;  // Smaller for faster processing
+        canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Convert to blob and send to server for detection
+        canvas.toBlob(async (blob) => {
+            // Detect vehicles
+            const vehicleFormData = new FormData();
+            vehicleFormData.append('frame', blob, `vehicle_${Date.now()}.jpg`);
+            
+            try {
+                const vehicleResponse = await fetch('/detect-vehicles', {
+                    method: 'POST',
+                    body: vehicleFormData
+                });
+                const vehicleResult = await vehicleResponse.json();
+                
+                if (vehicleResult.status === 'success') {
+                    // Update vehicle counts in UI
+                    updateVehicleCounts(vehicleResult.vehicle_counts);
+                }
+            } catch (err) {
+                console.error("Vehicle detection error:", err);
+            }
+            
+            // Detect helmet
+            const helmetFormData = new FormData();
+            helmetFormData.append('frame', blob, `helmet_${Date.now()}.jpg`);
+            
+            try {
+                const helmetResponse = await fetch('/detect-helmet', {
+                    method: 'POST',
+                    body: helmetFormData
+                });
+                const helmetResult = await helmetResponse.json();
+                
+                if (helmetResult.violation) {
+                    console.log("🚨 HELMET VIOLATION DETECTED!");
+                    // Show violation overlay on video
+                    showViolationOverlay(video);
+                    
+                    // Auto-capture violation snapshot
+                    captureViolationSnapshot(video);
+                }
+            } catch (err) {
+                console.error("Helmet detection error:", err);
+            }
+        }, 'image/jpeg', 0.8);
+    }, 3000); // Check every 3 seconds
+}
+
+function updateVehicleCounts(vehicleData) {
+    const vehicleCountsElement = document.getElementById("vehicle_counts");
+    if (vehicleCountsElement) {
+        vehicleCountsElement.innerHTML = 
+            "🚗 Cars: " + vehicleData.car + "<br>" +
+            "🛵 Bikes: " + vehicleData.motorcycle + "<br>" +
+            "🚌 Buses: " + vehicleData.bus + "<br>" +
+            "🚚 Trucks: " + vehicleData.truck;
+    }
+}
+
+function showViolationOverlay(video) {
+    // Create overlay element
+    let overlay = document.getElementById('violation-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'violation-overlay';
+        overlay.style.cssText = `
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: red;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            z-index: 1000;
+        `;
+        video.parentElement.style.position = 'relative';
+        video.parentElement.appendChild(overlay);
+    }
+    
+    overlay.textContent = '🚨 NO HELMET DETECTED';
+    overlay.style.display = 'block';
+    
+    // Hide after 3 seconds
+    setTimeout(() => {
+        overlay.style.display = 'none';
+    }, 3000);
+}
+
+function captureViolationSnapshot(video) {
+    // Create canvas to capture full quality frame
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+    
+    // Convert to blob and send to server
+    canvas.toBlob(async (blob) => {
+        const formData = new FormData();
+        formData.append('violation', blob, `violation_${Date.now()}.jpg`);
+        
+        try {
+            const response = await fetch('/save-violation', {
+                method: 'POST',
+                body: formData
+            });
+            console.log("Violation snapshot saved");
+        } catch (err) {
+            console.error("Error saving violation:", err);
+        }
+    }, 'image/jpeg', 0.9);
+}
+
+function stopCamera(){
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        const video = document.getElementById("video");
+        video.srcObject = null;
+        stream = null;
+        console.log("Camera stopped");
+        
+        // Stop helmet detection
+        if (detectionInterval) {
+            clearInterval(detectionInterval);
+            detectionInterval = null;
+        }
+    }
+}
+
+function captureSnapshot(){
+    const video = document.getElementById("video");
+    if (video.srcObject) {
+        // Create canvas to capture frame
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        
+        // Convert to blob and send to server
+        canvas.toBlob(async (blob) => {
+            const formData = new FormData();
+            formData.append('snapshot', blob, `manual_${Date.now()}.jpg`);
+            
+            try {
+                const response = await fetch('/capture', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (response.ok) {
+                    alert("Snapshot captured! Check the Violation Snapshots panel.");
+                }
+            } catch (err) {
+                console.error("Error saving snapshot:", err);
+            }
+        }, 'image/jpeg', 0.9);
+    } else {
+        alert("Please start the camera first!");
+    }
+}
+
+// Auto-list cameras on page load
+window.addEventListener('load', () => {
+    listCameras();
+});
+
+// LIVE STATS
+setInterval(()=>{
+    fetch("/stats")
+    .then(r=>r.json())
+    .then(d=>{
+        document.getElementById("stats").innerHTML =
+        "🚗 Vehicles: "+d.vehicles+"<br>🚦 Traffic: "+d.traffic;
+        
+        document.getElementById("vehicle_counts").innerHTML =
+        "🚗 Cars: "+d.vehicle_counts.car+"<br>"+
+        "🛵 Bikes: "+d.vehicle_counts.motorcycle+"<br>"+
+        "🚌 Buses: "+d.vehicle_counts.bus+"<br>"+
+        "🚚 Trucks: "+d.vehicle_counts.truck;
+    });
+},1000);
+
+// VIOLATIONS IMAGES
+setInterval(()=>{
+    fetch("/violations")
+    .then(r=>r.json())
+    .then(data=>{
+        let html = "";
+        data.slice(-5).reverse().forEach(img=>{
+            html += `<img src="${img}">`;
+        });
+        document.getElementById("violations").innerHTML = html;
+    });
+},2000);
+
+</script>
+
+</body>
+</html>
